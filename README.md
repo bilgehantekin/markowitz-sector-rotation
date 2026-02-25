@@ -80,3 +80,15 @@ python src/backtest.py
 | Sharpe Ratio | 1.99 | 1.74 |
 | Max Drawdown | -32.4% | -32.4% |
 | Calmar Ratio | 1.91 | 1.50 |
+
+## TODO For Aylin :)
+
+- [ ] Add rolling Sharpe ratio plot (1-year window, strategy vs benchmark)
+- [ ] Add monthly returns heatmap with excess return comparison
+- [ ] Build sensitivity analysis module (parameter sweeps for risk aversion, tilt strength, max weight, lookback)
+- [ ] Generate sensitivity heatmaps (Sharpe and excess Sharpe across parameter grid)
+- [ ] Add transaction cost modeling (commission per rebalance)
+- [ ] Implement look-ahead bias control (lag macro data by 1 month)
+- [ ] Create Jupyter notebook with step-by-step walkthrough
+- [ ] Add sector-level return attribution analysis
+- [ ] Compare against XU100 (BIST-100 index) as additional benchmark
