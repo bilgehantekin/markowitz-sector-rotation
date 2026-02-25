@@ -53,7 +53,7 @@ reports/
   weights_over_time.png   # Portfolio allocation over time
 
 docs/
-  471_proposal (2).pdf    # Original project proposal
+  471_proposal.pdf    # Original project proposal
 ```
 
 ## Quick Start
