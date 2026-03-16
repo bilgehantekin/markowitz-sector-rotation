@@ -1,94 +1,133 @@
-# YAP 471 - Dynamic Sector and Asset Rotation with Markowitz Optimization
+# YAP 471 - Dynamic BIST Rotation with Markowitz Optimization
 
-Computational Finance term project. A hybrid signal-driven portfolio strategy on Borsa Istanbul (BIST) equities using Markowitz Mean-Variance optimization.
+Computational Finance term project implementing a proposal-faithful Borsa Istanbul rotation strategy. The system combines macro regime signals and technical indicators, then feeds the resulting composite score into a long-only Markowitz optimizer.
 
-**Team:** Emirhan Yavuz, Aylin Barutcu, Bilgehan Tekin, Utku Kaya
+## What the project builds
 
-## Strategy Overview
+- A 10-stock BIST universe across 4 sector groups:
+  - Mining/Industrial: `EREGL.IS`, `SISE.IS`
+  - Export-Oriented: `TOASO.IS`, `FROTO.IS`, `THYAO.IS`
+  - Interest-Sensitive: `GARAN.IS`, `AKBNK.IS`, `EKGYO.IS`
+  - Defensive/Retail: `BIMAS.IS`, `MGROS.IS`
+- A hybrid regime score in `[-1, 1]` using:
+  - Technical features: 50/200-day trend, 63-day momentum, volatility regime
+  - Macro features: CPI YoY, WACF interest rate, USD/TRY
+- A monthly rebalanced Markowitz portfolio with:
+  - Fully invested budget constraint
+  - Long-only weights
+  - 25% max weight per asset
+- A same-schedule equal-weight benchmark
 
-1. **Signal Generation** — Composite score (-1 to +1) per asset combining:
-   - *Technical:* 50/200-day MA trend, 63-day momentum (cross-sectional z-score), volatility regime
-   - *Macro:* Interest rate regime (WACF), inflation regime (CPI YoY), FX regime (USD/TRY) with sector-specific sensitivity weights
+## Data logic
 
-2. **Portfolio Optimization** — Markowitz mean-variance with signal-tilted inputs:
-   - Expected returns tilted by composite score
-   - Covariance matrix adjusted via Ledoit-Wolf shrinkage + signal-based vol scaling
-   - Constraints: fully invested, long-only, max 25% per asset
+- Asset prices come from Yahoo Finance via `yfinance`.
+- Macro data comes from CBRT EVDS when an `EVDS_API_KEY` is available.
+- If live EVDS access fails, the code falls back to cached macro data and migrates legacy cache files into the new lag-safe format.
 
-3. **Backtesting** — Monthly rebalance, benchmark: 1/N equal-weight portfolio
+## Timing and bias controls
 
-## Asset Universe (4 Sectors, 10 Stocks)
+- Synthetic non-trading price rows are removed if every asset price is unchanged from the prior day.
+- Price data is forward-filled conservatively; no backfilling is used.
+- USD/TRY and WACF are treated as available no earlier than the next trading day.
+- CPI is shifted by one full month as a conservative release-lag proxy.
+- Rebalance dates are the last tradable dates of each month, not calendar month-end labels.
+- Portfolio weights decided at the rebalance close are applied starting on the next trading day.
 
-| Sector | Tickers |
-|--------|---------|
-| Mining/Industrial | EREGL, SISE |
-| Export-Oriented | TOASO, FROTO, THYAO |
-| Interest-Sensitive | GARAN, AKBNK, EKGYO |
-| Defensive/Retail | BIMAS, MGROS |
+## Repository structure
 
-## Data Sources
-
-- **Stock Prices:** Yahoo Finance (`yfinance`), daily, 2016-2026
-- **Macro Data:** TCMB EVDS API — USD/TRY, CPI index, WACF interest rate
-
-## Project Structure
-
-```
+```text
 src/
-  asset_fetch.py          # BIST price data fetcher (yfinance)
-  macro_fetch.py          # EVDS macro data fetcher (CPI, rates, FX)
-  signal_generation.py    # Technical + macro hybrid signal engine
-  optimization.py         # Markowitz MV optimizer (cvxpy)
-  backtest.py             # Monthly rebalance simulation & reporting
+  config.py               # Shared paths, universe, defaults, lag assumptions
+  asset_fetch.py          # Price download and cleaning
+  macro_fetch.py          # EVDS fetch + lag-safe macro alignment
+  signal_generation.py    # Technical + macro regime scoring
+  optimization.py         # Signal-tilted Markowitz optimizer
+  backtest.py             # Monthly simulation, metrics, plots, validation
+
+tests/
+  conftest.py
+  test_pipeline.py
 
 data/
-  bist_prices.csv         # Daily close prices (10 tickers)
-  macro_data.csv          # Daily macro panel (USDTRY, CPI_YOY, WACF_RATE)
-  composite_scores.csv    # Signal scores per asset
-  backtest_metrics.csv    # Performance comparison table
+  bist_prices.csv
+  macro_data.csv
+  composite_scores.csv
+  backtest_metrics.csv
+  weights_history.csv
 
 reports/
-  cumulative_returns.png  # Strategy vs benchmark growth chart
-  drawdown.png            # Drawdown comparison
-  weights_over_time.png   # Portfolio allocation over time
-
-docs/
-  471_proposal.pdf    # Original project proposal
+  cumulative_returns.png
+  drawdown.png
+  weights_over_time.png
 ```
 
-## Quick Start
+## Setup
 
 ```bash
-# Install dependencies
-pip install yfinance pandas numpy scipy cvxpy matplotlib evds
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-# Fetch data
+Optional for live macro refresh:
+
+```bash
+export EVDS_API_KEY="your_api_key_here"
+```
+
+## How to run
+
+Refresh price data:
+
+```bash
 python src/asset_fetch.py
-python src/macro_fetch.py
+```
 
-# Run full backtest
+Refresh or migrate macro data:
+
+```bash
+python src/macro_fetch.py
+```
+
+Generate composite scores:
+
+```bash
+python src/signal_generation.py
+```
+
+Run the full backtest:
+
+```bash
 python src/backtest.py
 ```
 
-## Results (June 2017 - February 2026)
+Run tests:
 
-| Metric | Strategy | Benchmark (1/N) |
-|--------|----------|-----------------|
-| Total Return | 6,360% | 2,949% |
-| Ann. Return | 62.0% | 48.5% |
-| Ann. Volatility | 31.2% | 27.9% |
-| Sharpe Ratio | 1.99 | 1.74 |
-| Max Drawdown | -32.4% | -32.4% |
-| Calmar Ratio | 1.91 | 1.50 |
+```bash
+pytest
+```
 
-## TODO For Aylin :)
+## Outputs
 
-- [ ] Add rolling Sharpe ratio plot (1-year window, strategy vs benchmark)
-- [ ] Add monthly returns heatmap with excess return comparison
-- [ ] Build sensitivity analysis module (parameter sweeps for risk aversion, tilt strength, max weight, lookback)
-- [ ] Generate sensitivity heatmaps (Sharpe and excess Sharpe across parameter grid)
-- [ ] Add transaction cost modeling (commission per rebalance)
-- [ ] Implement look-ahead bias control (lag macro data by 1 month)
-- [ ] Create Jupyter notebook with step-by-step walkthrough
-- [ ] Add sector-level return attribution analysis
-- [ ] Compare against XU100 (BIST-100 index) as additional benchmark
+- `data/composite_scores.csv`: lag-safe regime scores by asset and date
+- `data/backtest_metrics.csv`: strategy and benchmark performance metrics
+- `data/weights_history.csv`: rebalance-date portfolio weights
+- `reports/cumulative_returns.png`: growth of 1 TRY
+- `reports/drawdown.png`: drawdown comparison
+- `reports/weights_over_time.png`: stacked portfolio weights
+
+## Important assumptions
+
+- The covariance estimate uses diagonal shrinkage, not a true Ledoit-Wolf estimator.
+- The default backtest start is June 1, 2017 so the technical indicators have enough warm-up history.
+- Cached report files in the repo should be treated as generated artifacts; rerun the pipeline after code changes to reproduce current results.
+
+## Validation expectations
+
+`src/backtest.py` now checks and reports whether:
+
+- strategy and benchmark return indices match
+- optimized weights sum to 1
+- optimized weights stay non-negative
+- optimized weights stay within the 25% cap
+- every rebalance date has a matching score row

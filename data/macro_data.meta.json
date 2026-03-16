@@ -1,0 +1,11 @@
+{
+  "panel_version": 1,
+  "aligned_to_trading_calendar": true,
+  "lag_policy": {
+    "usdtry_release_lag_days": 1,
+    "wacf_release_lag_days": 1,
+    "cpi_release_lag_months": 1
+  },
+  "start_date": "2016-02-04",
+  "end_date": "2026-02-23"
+}

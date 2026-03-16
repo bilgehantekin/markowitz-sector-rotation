@@ -1,84 +1,89 @@
 """
 Signal Generation Module
 ========================
-Hybrid signal combining:
-  1) Technical indicators (per-asset): MA trend, momentum, volatility regime
-  2) Macro regime rules (per-sector): CPI, WACF rate, USD/TRY dynamics
-
-Output: composite score in [-1, +1] for each asset on each date.
+Hybrid regime signal combining technical and macro information.
 """
 
 import numpy as np
 import pandas as pd
-from pathlib import Path
 
-from asset_fetch import SECTORS
+from config import (
+    DATA_DIR,
+    DEFAULT_MACRO_WEIGHT,
+    DEFAULT_TECH_WEIGHT,
+    SCORES_FILENAME,
+    SECTORS,
+    TECHNICAL_WINDOWS,
+)
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
 
-# Reverse lookup: ticker -> sector name
-TICKER_SECTOR = {}
-for sector, tickers in SECTORS.items():
-    for t in tickers:
-        TICKER_SECTOR[t] = sector
+TICKER_SECTOR = {
+    ticker: sector
+    for sector, tickers in SECTORS.items()
+    for ticker in tickers
+}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  1. TECHNICAL SIGNALS  (per asset, daily)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def ma_trend_signal(prices: pd.DataFrame, short: int = 50, long: int = 200) -> pd.DataFrame:
-    """Trend signal: +1 if short MA > long MA, else -1.
+def ma_trend_signal(
+    prices: pd.DataFrame,
+    short: int = TECHNICAL_WINDOWS["ma_short"],
+    long: int = TECHNICAL_WINDOWS["ma_long"],
+) -> pd.DataFrame:
+    """Trend signal: +1 when the short moving average exceeds the long one."""
+    ma_short = prices.rolling(short, min_periods=short).mean()
+    ma_long = prices.rolling(long, min_periods=long).mean()
 
-    When the short-term moving average is above the long-term one the asset
-    is in an uptrend; otherwise it is in a downtrend.
-    """
-    ma_short = prices.rolling(short).mean()
-    ma_long = prices.rolling(long).mean()
-    signal = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
+    signal = pd.DataFrame(index=prices.index, columns=prices.columns, dtype=float)
     signal[ma_short > ma_long] = 1.0
     signal[ma_short <= ma_long] = -1.0
     return signal
 
 
-def momentum_signal(prices: pd.DataFrame, lookback: int = 63) -> pd.DataFrame:
+def momentum_signal(
+    prices: pd.DataFrame,
+    lookback: int = TECHNICAL_WINDOWS["momentum"],
+) -> pd.DataFrame:
     """Momentum signal: normalized 3-month return mapped to [-1, +1].
 
     Uses a cross-sectional z-score so that at each date the scores
     reflect relative strength across assets.
     """
     ret = prices.pct_change(periods=lookback)
-    # Cross-sectional z-score (across assets for each date)
     mu = ret.mean(axis=1)
     sigma = ret.std(axis=1)
     z = ret.sub(mu, axis=0).div(sigma.replace(0, np.nan), axis=0)
-    # Clip to [-1, 1]
-    signal = z.clip(-3, 3) / 3.0
-    return signal
+    return z.clip(-3, 3) / 3.0
 
 
-def volatility_regime_signal(prices: pd.DataFrame, window: int = 63) -> pd.DataFrame:
+def volatility_regime_signal(
+    prices: pd.DataFrame,
+    window: int = TECHNICAL_WINDOWS["volatility"],
+    baseline_window: int = TECHNICAL_WINDOWS["volatility_baseline"],
+) -> pd.DataFrame:
     """Volatility regime: penalise assets in high-vol regime.
 
     Compares each asset's recent volatility to its own 1-year rolling
     median.  High vol → negative signal, low vol → positive signal.
     """
-    daily_ret = prices.pct_change()
-    vol = daily_ret.rolling(window).std() * np.sqrt(252)
-    vol_median = vol.rolling(252).median()
+    daily_ret = prices.pct_change(fill_method=None)
+    vol = daily_ret.rolling(window, min_periods=window).std() * np.sqrt(252)
+    vol_median = vol.rolling(baseline_window, min_periods=baseline_window).median()
 
-    signal = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
-    signal[vol < vol_median] = 0.5    # low vol regime  → mild positive
-    signal[vol >= vol_median] = -0.5  # high vol regime → mild negative
+    signal = pd.DataFrame(index=prices.index, columns=prices.columns, dtype=float)
+    signal[vol < vol_median] = 0.5
+    signal[vol >= vol_median] = -0.5
     return signal
 
 
 def compute_technical_scores(prices: pd.DataFrame) -> pd.DataFrame:
     """Combine technical signals into a single score in [-1, +1]."""
-    trend = ma_trend_signal(prices)          # weight 0.40
-    mom = momentum_signal(prices)            # weight 0.35
-    vol = volatility_regime_signal(prices)   # weight 0.25
+    trend = ma_trend_signal(prices)
+    mom = momentum_signal(prices)
+    vol = volatility_regime_signal(prices)
 
     composite = 0.40 * trend + 0.35 * mom + 0.25 * vol
     return composite.clip(-1, 1)
@@ -174,8 +179,8 @@ def compute_macro_scores(macro: pd.DataFrame, tickers: list[str]) -> pd.DataFram
 def compute_composite_scores(
     prices: pd.DataFrame,
     macro: pd.DataFrame,
-    tech_weight: float = 0.6,
-    macro_weight: float = 0.4,
+    tech_weight: float = DEFAULT_TECH_WEIGHT,
+    macro_weight: float = DEFAULT_MACRO_WEIGHT,
 ) -> pd.DataFrame:
     """Combine technical and macro scores into final composite signal.
 
@@ -190,7 +195,6 @@ def compute_composite_scores(
     -------
     DataFrame of composite scores in [-1, +1].
     """
-    # Align dates
     common_idx = prices.index.intersection(macro.index)
     prices_a = prices.loc[common_idx]
     macro_a = macro.loc[common_idx]
@@ -199,23 +203,23 @@ def compute_composite_scores(
     mac = compute_macro_scores(macro_a, prices_a.columns.tolist())
 
     composite = tech_weight * tech + macro_weight * mac
-    composite = composite.clip(-1, 1).dropna()
+    composite = composite.clip(-1, 1)
 
-    return composite
+    valid_rows = tech.notna().all(axis=1) & mac.notna().all(axis=1)
+    return composite.loc[valid_rows]
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     from asset_fetch import load_prices
-    from macro_fetch import load_macro
+    from macro_fetch import get_macro_panel
 
     prices = load_prices()
-    macro = load_macro()
+    macro = get_macro_panel(prices.index)
 
     scores = compute_composite_scores(prices, macro)
 
-    # Save
-    path = DATA_DIR / "composite_scores.csv"
+    path = DATA_DIR / SCORES_FILENAME
     scores.to_csv(path)
     print(f"Saved composite scores -> {path}")
     print(f"Shape: {scores.shape}")

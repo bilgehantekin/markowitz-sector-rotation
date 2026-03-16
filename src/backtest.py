@@ -1,67 +1,62 @@
 """
 Backtesting & Reporting Module
 ==============================
-Monthly rebalance simulation comparing:
-  - Strategy: Markowitz + hybrid signal
-  - Benchmark: 1/N equal-weight portfolio
-
-Outputs: cumulative returns, performance metrics, visualisations.
+Monthly rebalance simulation for the strategy and equal-weight benchmark.
 """
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from pathlib import Path
 
 from asset_fetch import load_prices
-from macro_fetch import load_macro
+from config import (
+    DATA_DIR,
+    DEFAULT_BACKTEST_START,
+    DEFAULT_LOOKBACK,
+    DEFAULT_MAX_WEIGHT,
+    DEFAULT_RISK_AVERSION,
+    DEFAULT_TILT_STRENGTH,
+    METRICS_FILENAME,
+    REPORTS_DIR,
+    WEIGHTS_FILENAME,
+)
+from macro_fetch import get_macro_panel
+from optimization import compute_weights, equal_weight, validate_weight_vector
 from signal_generation import compute_composite_scores
-from optimization import compute_weights, equal_weight
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
-REPORTS_DIR = PROJECT_ROOT / "reports"
-REPORTS_DIR.mkdir(exist_ok=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Backtest engine
 # ═══════════════════════════════════════════════════════════════════════════
 
-def get_rebalance_dates(prices: pd.DataFrame, freq: str = "M") -> list[pd.Timestamp]:
-    """Get month-end rebalance dates from the price index."""
-    return list(prices.resample(freq).last().dropna().index)
+def get_rebalance_dates(index_like: pd.DataFrame | pd.DatetimeIndex) -> list[pd.Timestamp]:
+    """Get the last tradable date in each month from an existing trading index."""
+    index = index_like.index if isinstance(index_like, pd.DataFrame) else pd.DatetimeIndex(index_like)
+    index = pd.DatetimeIndex(index).sort_values().unique()
+    grouped = index.to_series(index=index).groupby(index.to_period("M")).last()
+    return list(grouped.to_list())
 
 
 def run_backtest(
     prices: pd.DataFrame,
     scores: pd.DataFrame,
-    risk_aversion: float = 5.0,
-    tilt_strength: float = 0.5,
-    max_weight: float = 0.25,
-    lookback: int = 252,
-    start_date: str = "2017-01-01",
+    risk_aversion: float = DEFAULT_RISK_AVERSION,
+    tilt_strength: float = DEFAULT_TILT_STRENGTH,
+    max_weight: float = DEFAULT_MAX_WEIGHT,
+    lookback: int = DEFAULT_LOOKBACK,
+    start_date: str = DEFAULT_BACKTEST_START,
 ) -> dict:
-    """Run monthly-rebalanced backtest for strategy and benchmark.
-
-    Parameters
-    ----------
-    start_date : first allowed rebalance date (needs enough history for lookback)
-
-    Returns
-    -------
-    dict with keys: strategy_returns, benchmark_returns, weights_history
-    """
+    """Run a monthly-rebalanced backtest for strategy and benchmark."""
     daily_returns = prices.pct_change(fill_method=None).dropna()
-
-    # Filter rebalance dates
-    rebal_dates = get_rebalance_dates(prices)
+    signal_index = prices.index.intersection(scores.index)
+    rebal_dates = get_rebalance_dates(signal_index)
     rebal_dates = [d for d in rebal_dates if d >= pd.Timestamp(start_date)]
+    if len(rebal_dates) < 2:
+        raise ValueError("Not enough rebalance dates to run the backtest.")
 
     n_assets = len(prices.columns)
     w_eq = equal_weight(n_assets)
 
-    # Storage
     strat_daily = []
     bench_daily = []
     weights_hist = []
@@ -69,7 +64,6 @@ def run_backtest(
     for i, rebal_date in enumerate(rebal_dates[:-1]):
         next_rebal = rebal_dates[i + 1]
 
-        # Compute optimized weights
         w_opt = compute_weights(
             prices, scores, rebal_date,
             lookback=lookback,
@@ -77,30 +71,24 @@ def run_backtest(
             tilt_strength=tilt_strength,
             max_weight=max_weight,
         )
-        weights_hist.append(w_opt)
+        weights_hist.append(w_opt.rename(rebal_date))
 
-        # Daily returns in holding period
         mask = (daily_returns.index > rebal_date) & (daily_returns.index <= next_rebal)
         period_rets = daily_returns.loc[mask]
 
         if period_rets.empty:
             continue
 
-        # Portfolio daily returns
-        strat_period = (period_rets.values @ w_opt.values)
-        bench_period = (period_rets.values @ w_eq)
+        strat_period = period_rets.values @ w_opt.values
+        bench_period = period_rets.values @ w_eq
 
         for j, dt in enumerate(period_rets.index):
             strat_daily.append((dt, strat_period[j]))
             bench_daily.append((dt, bench_period[j]))
 
-    # Build return series
-    strat_ret = pd.Series(
-        dict(strat_daily), name="Strategy"
-    ).sort_index()
-    bench_ret = pd.Series(
-        dict(bench_daily), name="Benchmark_1N"
-    ).sort_index()
+    strat_ret = pd.Series(dict(strat_daily), name="Strategy").sort_index()
+    bench_ret = pd.Series(dict(bench_daily), name="Benchmark_1N").sort_index()
+    bench_ret = bench_ret.reindex(strat_ret.index)
 
     weights_df = pd.DataFrame(weights_hist)
 
@@ -108,6 +96,7 @@ def run_backtest(
         "strategy_returns": strat_ret,
         "benchmark_returns": bench_ret,
         "weights_history": weights_df,
+        "rebalance_dates": rebal_dates,
     }
 
 
@@ -117,6 +106,9 @@ def run_backtest(
 
 def performance_metrics(returns: pd.Series, name: str = "") -> pd.Series:
     """Compute standard performance metrics."""
+    if returns.empty:
+        raise ValueError(f"Cannot compute performance metrics for empty series: {name}")
+
     cum = (1 + returns).cumprod()
     total_ret = cum.iloc[-1] - 1
     n_years = (returns.index[-1] - returns.index[0]).days / 365.25
@@ -141,6 +133,38 @@ def performance_metrics(returns: pd.Series, name: str = "") -> pd.Series:
         "Calmar Ratio": round(calmar, 3),
         "# Trading Days": len(returns),
     }, name=name)
+
+
+def validate_weights_history(
+    weights_df: pd.DataFrame,
+    max_weight: float = DEFAULT_MAX_WEIGHT,
+) -> pd.DataFrame:
+    """Validate every rebalance weight vector against portfolio constraints."""
+    records = []
+    for date, row in weights_df.iterrows():
+        result = validate_weight_vector(row, max_weight=max_weight)
+        records.append(pd.Series(result, name=date))
+    return pd.DataFrame(records)
+
+
+def validate_backtest_results(
+    results: dict,
+    scores: pd.DataFrame,
+    max_weight: float = DEFAULT_MAX_WEIGHT,
+) -> dict[str, bool]:
+    """Run core sanity checks for a completed backtest."""
+    weights_df = results["weights_history"]
+    validation_df = validate_weights_history(weights_df, max_weight=max_weight)
+
+    return {
+        "matching_return_index": bool(
+            results["strategy_returns"].index.equals(results["benchmark_returns"].index)
+        ),
+        "weights_sum_to_one": bool(validation_df["sum_to_one"].all()),
+        "weights_non_negative": bool(validation_df["non_negative"].all()),
+        "weights_within_cap": bool(validation_df["within_cap"].all()),
+        "rebalance_dates_have_scores": bool(weights_df.index.isin(scores.index).all()),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -176,7 +200,7 @@ def plot_drawdown(strat_ret, bench_ret, save_path=None):
     for ret, label, ls in [(strat_ret, "Strategy", "-"), (bench_ret, "Benchmark", "--")]:
         cum = (1 + ret).cumprod()
         dd = (cum - cum.cummax()) / cum.cummax() * 100
-        ax.fill_between(dd.index, dd.values, alpha=0.3, label=label, linestyle=ls)
+        ax.plot(dd.index, dd.values, label=label, linestyle=ls, linewidth=1.8)
 
     ax.set_title("Drawdown (%)", fontsize=14)
     ax.set_xlabel("Date")
@@ -195,10 +219,9 @@ def plot_drawdown(strat_ret, bench_ret, save_path=None):
 def plot_weights_over_time(weights_df, save_path=None):
     """Stacked area chart of portfolio weights over time."""
     fig, ax = plt.subplots(figsize=(12, 6))
-    # Clean column names (remove .IS suffix for readability)
-    cols_clean = [c.replace(".IS", "") for c in weights_df.columns]
-    weights_df.columns = cols_clean
-    weights_df.plot.area(ax=ax, stacked=True, alpha=0.8)
+    plot_df = weights_df.copy()
+    plot_df.columns = [c.replace(".IS", "") for c in plot_df.columns]
+    plot_df.plot.area(ax=ax, stacked=True, alpha=0.8)
     ax.set_title("Portfolio Weights Over Time", fontsize=14)
     ax.set_xlabel("Rebalance Date")
     ax.set_ylabel("Weight")
@@ -221,19 +244,19 @@ def plot_weights_over_time(weights_df, save_path=None):
 if __name__ == "__main__":
     print("Loading data ...")
     prices = load_prices()
-    macro = load_macro()
+    macro = get_macro_panel(prices.index)
 
     print("Computing signals ...")
     scores = compute_composite_scores(prices, macro)
 
     print("Running backtest ...")
-    results = run_backtest(prices, scores, start_date="2017-06-01")
+    results = run_backtest(prices, scores)
 
     strat_ret = results["strategy_returns"]
     bench_ret = results["benchmark_returns"]
     weights_df = results["weights_history"]
+    validation_flags = validate_backtest_results(results, scores)
 
-    # ── Performance table ──
     strat_metrics = performance_metrics(strat_ret, name="Strategy")
     bench_metrics = performance_metrics(bench_ret, name="Benchmark (1/N)")
 
@@ -244,10 +267,13 @@ if __name__ == "__main__":
     print(report.to_string())
     print("=" * 60)
 
-    # Save metrics
-    report.to_csv(DATA_DIR / "backtest_metrics.csv")
+    print("\nValidation checks:")
+    for name, passed in validation_flags.items():
+        print(f"  {name}: {'PASS' if passed else 'FAIL'}")
 
-    # ── Plots ──
+    report.to_csv(DATA_DIR / METRICS_FILENAME)
+    weights_df.to_csv(DATA_DIR / WEIGHTS_FILENAME)
+
     plot_cumulative_returns(strat_ret, bench_ret, REPORTS_DIR / "cumulative_returns.png")
     plot_drawdown(strat_ret, bench_ret, REPORTS_DIR / "drawdown.png")
     plot_weights_over_time(weights_df, REPORTS_DIR / "weights_over_time.png")
