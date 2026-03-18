@@ -1,7 +1,9 @@
 numpy
 pandas
 matplotlib
+seaborn
 cvxpy
 yfinance
 evds
 pytest
+jupyter
