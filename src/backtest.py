@@ -45,8 +45,16 @@ def run_backtest(
     max_weight: float = DEFAULT_MAX_WEIGHT,
     lookback: int = DEFAULT_LOOKBACK,
     start_date: str = DEFAULT_BACKTEST_START,
+    cost_bps: float = 0.0,
 ) -> dict:
-    """Run a monthly-rebalanced backtest for strategy and benchmark."""
+    """Run a monthly-rebalanced backtest for strategy and benchmark.
+
+    Parameters
+    ----------
+    cost_bps : float
+        Round-trip transaction cost in basis points (e.g. 30 = 0.30%).
+        Applied proportionally to turnover at each rebalance.
+    """
     daily_returns = prices.pct_change(fill_method=None).dropna()
     signal_index = prices.index.intersection(scores.index)
     rebal_dates = get_rebalance_dates(signal_index)
@@ -56,10 +64,13 @@ def run_backtest(
 
     n_assets = len(prices.columns)
     w_eq = equal_weight(n_assets)
+    cost_frac = cost_bps / 10_000  # convert bps to fraction
 
     strat_daily = []
     bench_daily = []
     weights_hist = []
+    turnover_hist = []
+    w_prev = None
 
     for i, rebal_date in enumerate(rebal_dates[:-1]):
         next_rebal = rebal_dates[i + 1]
@@ -73,6 +84,14 @@ def run_backtest(
         )
         weights_hist.append(w_opt.rename(rebal_date))
 
+        # Transaction cost: turnover = half the sum of absolute weight changes
+        if w_prev is not None:
+            turnover = np.abs(w_opt.values - w_prev).sum() / 2
+        else:
+            turnover = np.abs(w_opt.values - w_eq).sum() / 2  # vs initial equal-weight
+        turnover_hist.append((rebal_date, turnover))
+        w_prev = w_opt.values.copy()
+
         mask = (daily_returns.index > rebal_date) & (daily_returns.index <= next_rebal)
         period_rets = daily_returns.loc[mask]
 
@@ -81,6 +100,10 @@ def run_backtest(
 
         strat_period = period_rets.values @ w_opt.values
         bench_period = period_rets.values @ w_eq
+
+        # Deduct transaction cost from the first day of the holding period
+        if cost_frac > 0:
+            strat_period[0] -= cost_frac * turnover
 
         for j, dt in enumerate(period_rets.index):
             strat_daily.append((dt, strat_period[j]))
@@ -92,11 +115,17 @@ def run_backtest(
 
     weights_df = pd.DataFrame(weights_hist)
 
+    turnover_series = pd.Series(dict(turnover_hist), name="Turnover")
+
     return {
         "strategy_returns": strat_ret,
         "benchmark_returns": bench_ret,
         "weights_history": weights_df,
         "rebalance_dates": rebal_dates,
+        "turnover_history": turnover_series,
+        "cost_bps": cost_bps,
+        "total_turnover": float(turnover_series.sum()),
+        "total_cost_bps": float(turnover_series.sum() * cost_bps),
     }
 
 
