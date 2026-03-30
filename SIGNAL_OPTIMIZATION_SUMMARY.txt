@@ -1,0 +1,13 @@
+================================================================================
+SIGNAL OPTIMIZATION ANALYSIS SUMMARY
+================================================================================
+
+BEST CONFIGURATION FOUND:
+Tech/Macro Mix: 50% / 50%
+Trend/Momentum/Volatility: 35% / 35% / 30%
+Sharpe Ratio: 1.9280
+Improvement: +0.16%
+
+ANALYSIS FILES:
+- data/signal_optimization_part_b.csv
+- data/signal_optimization_part_d.csv

@@ -7,6 +7,7 @@ Builds a lag-safe macro panel aligned to BIST trading dates.
 import json
 import os
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 from evds import evdsAPI
@@ -35,7 +36,7 @@ def _metadata_path(filename: str = MACRO_FILENAME) -> Path:
     return (DATA_DIR / filename).with_suffix(".meta.json")
 
 
-def _evds_client(api_key: str | None = None) -> evdsAPI:
+def _evds_client(api_key: Optional[str] = None) -> evdsAPI:
     configured_value = api_key or EVDS_API_KEY_ENV
     token = os.getenv(configured_value, configured_value)
     if not token:

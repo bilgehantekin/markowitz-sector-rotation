@@ -6,6 +6,7 @@ Hybrid regime signal combining technical and macro information.
 
 import numpy as np
 import pandas as pd
+from typing import List
 
 from config import (
     DATA_DIR,
@@ -141,7 +142,7 @@ SECTOR_MACRO_SENSITIVITY = {
 }
 
 
-def compute_macro_scores(macro: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
+def compute_macro_scores(macro: pd.DataFrame, tickers: List[str]) -> pd.DataFrame:
     """Compute macro regime score for each ticker based on its sector.
 
     Parameters
@@ -188,8 +189,8 @@ def compute_composite_scores(
     ----------
     prices : daily close prices (tickers as columns)
     macro  : daily macro panel (USDTRY, CPI_YOY, WACF_RATE, USDTRY_CHG_1M)
-    tech_weight  : weight for technical score (default 0.6)
-    macro_weight : weight for macro score    (default 0.4)
+    tech_weight  : weight for technical score (default 0.4)
+    macro_weight : weight for macro score    (default 0.6)
 
     Returns
     -------

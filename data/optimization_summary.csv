@@ -1,0 +1,4 @@
+Metric,Best Config,Value
+Sharpe,"TW=0.4, RA=3.0, TS=0.0, MW=0.20",2.0570
+Excess Sharpe,"TW=0.4, RA=3.0, TS=0.0, MW=0.20",0.3290
+Calmar Ratio,"TW=0.4, RA=3.0, TS=0.0, MW=0.20",1.7597

@@ -11,6 +11,8 @@ import matplotlib.ticker as mticker
 import seaborn as sns
 import yfinance as yf
 
+from typing import Optional, List
+
 from config import DATA_DIR, REPORTS_DIR, SECTORS
 
 
@@ -87,17 +89,15 @@ def plot_monthly_heatmap(
     fig, axes = plt.subplots(1, 2, figsize=(20, max(6, len(strat_tbl) * 0.55)),
                              sharey=True)
 
-    vmax_s = max(abs(strat_tbl.max().max()), abs(strat_tbl.min().min()))
     sns.heatmap(strat_tbl, annot=True, fmt=".1f", center=0,
-                cmap="RdYlGn", vmin=-vmax_s, vmax=vmax_s,
+                cmap="RdYlGn", vmin=-30, vmax=30,
                 xticklabels=month_labels, linewidths=0.5,
                 ax=axes[0], cbar_kws={"label": "Return (%)"})
     axes[0].set_title("Strategy Monthly Returns (%)", fontsize=13)
     axes[0].set_ylabel("Year")
 
-    vmax_e = max(abs(excess_tbl.max().max()), abs(excess_tbl.min().min()))
     sns.heatmap(excess_tbl, annot=True, fmt=".1f", center=0,
-                cmap="RdYlGn", vmin=-vmax_e, vmax=vmax_e,
+                cmap="RdYlGn", vmin=-30, vmax=30,
                 xticklabels=month_labels, linewidths=0.5,
                 ax=axes[1], cbar_kws={"label": "Excess (%)"})
     axes[1].set_title("Excess Returns: Strategy − Benchmark (%)", fontsize=13)
@@ -126,7 +126,7 @@ TICKER_SECTOR = {
 def compute_sector_attribution(
     prices: pd.DataFrame,
     weights_df: pd.DataFrame,
-    rebalance_dates: list[pd.Timestamp],
+    rebalance_dates: List[pd.Timestamp],
 ) -> pd.DataFrame:
     """Decompose portfolio return into sector-level contributions.
 
@@ -220,7 +220,7 @@ def fetch_xu100(start: str, end: str) -> pd.Series:
 def plot_xu100_comparison(
     strat_ret: pd.Series,
     bench_ret: pd.Series,
-    xu100_prices: pd.Series | None = None,
+    xu100_prices: Optional[pd.Series] = None,
     save_path=None,
 ) -> plt.Figure:
     """Overlay strategy, 1/N benchmark, and XU100 cumulative returns."""

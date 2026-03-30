@@ -7,6 +7,7 @@ Monthly rebalance simulation for the strategy and equal-weight benchmark.
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from typing import Union, List, Dict
 
 from asset_fetch import load_prices
 from config import (
@@ -29,7 +30,7 @@ from signal_generation import compute_composite_scores
 #  Backtest engine
 # ═══════════════════════════════════════════════════════════════════════════
 
-def get_rebalance_dates(index_like: pd.DataFrame | pd.DatetimeIndex) -> list[pd.Timestamp]:
+def get_rebalance_dates(index_like: Union[pd.DataFrame, pd.DatetimeIndex]) -> List[pd.Timestamp]:
     """Get the last tradable date in each month from an existing trading index."""
     index = index_like.index if isinstance(index_like, pd.DataFrame) else pd.DatetimeIndex(index_like)
     index = pd.DatetimeIndex(index).sort_values().unique()
@@ -180,7 +181,7 @@ def validate_backtest_results(
     results: dict,
     scores: pd.DataFrame,
     max_weight: float = DEFAULT_MAX_WEIGHT,
-) -> dict[str, bool]:
+) -> Dict[str, bool]:
     """Run core sanity checks for a completed backtest."""
     weights_df = results["weights_history"]
     validation_df = validate_weights_history(weights_df, max_weight=max_weight)
@@ -246,17 +247,26 @@ def plot_drawdown(strat_ret, bench_ret, save_path=None):
 
 
 def plot_weights_over_time(weights_df, save_path=None):
-    """Stacked area chart of portfolio weights over time."""
-    fig, ax = plt.subplots(figsize=(12, 6))
+    """Line chart of portfolio weights over time (one line per stock)."""
+    fig, ax = plt.subplots(figsize=(14, 7))
     plot_df = weights_df.copy()
     plot_df.columns = [c.replace(".IS", "") for c in plot_df.columns]
-    plot_df.plot.area(ax=ax, stacked=True, alpha=0.8)
-    ax.set_title("Portfolio Weights Over Time", fontsize=14)
-    ax.set_xlabel("Rebalance Date")
-    ax.set_ylabel("Weight")
-    ax.legend(loc="center left", bbox_to_anchor=(1.0, 0.5), fontsize=9)
-    ax.set_ylim(0, 1)
-    ax.grid(True, alpha=0.3)
+    
+    # Plot each stock as a separate line
+    colors = plt.cm.tab10(np.linspace(0, 1, len(plot_df.columns)))
+    for i, col in enumerate(plot_df.columns):
+        ax.plot(plot_df.index, plot_df[col], marker='o', linewidth=2, 
+                label=col, color=colors[i], markersize=4, alpha=0.8)
+    
+    ax.set_title("Portfolio Weights Over Time", fontsize=14, fontweight='bold')
+    ax.set_xlabel("Rebalance Date", fontsize=12)
+    ax.set_ylabel("Weight", fontsize=12)
+    ax.legend(loc="best", ncol=2, fontsize=10, framealpha=0.95)
+    ax.set_ylim(-0.02, max(0.30, plot_df.max().max() + 0.05))
+    ax.grid(True, alpha=0.3, linestyle='--')
+    
+    # Improve x-axis readability
+    fig.autofmt_xdate(rotation=45, ha='right')
     fig.tight_layout()
 
     if save_path:

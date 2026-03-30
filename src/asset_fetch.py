@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
+from typing import List
 
 from config import (
     ALL_TICKERS,
@@ -49,7 +50,7 @@ def clean_prices(prices: pd.DataFrame) -> pd.DataFrame:
 
 
 def fetch_prices(
-    tickers: list[str] = ALL_TICKERS,
+    tickers: List[str] = ALL_TICKERS,
     start: str = DEFAULT_PRICE_START,
     end: str = DEFAULT_PRICE_END,
 ) -> pd.DataFrame:

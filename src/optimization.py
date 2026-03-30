@@ -5,6 +5,7 @@ Markowitz mean-variance optimizer with signal-tilted inputs.
 """
 
 from pathlib import Path
+from typing import Union, Dict
 
 import cvxpy as cp
 import numpy as np
@@ -104,10 +105,10 @@ def equal_weight(n: int) -> np.ndarray:
 
 
 def validate_weight_vector(
-    weights: pd.Series | np.ndarray,
+    weights: Union[pd.Series, np.ndarray],
     max_weight: float = DEFAULT_MAX_WEIGHT,
     atol: float = 1e-6,
-) -> dict[str, bool | float]:
+) -> Dict[str, Union[bool, float]]:
     """Check budget, long-only, and cap constraints for a weight vector."""
     array = weights.to_numpy() if isinstance(weights, pd.Series) else np.asarray(weights)
     return {

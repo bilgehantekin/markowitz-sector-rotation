@@ -1,0 +1,2 @@
+Configuration,Signal_Filtering,Tilt_Strength,Risk_Aversion,Max_Weight,Lookback_Days,Transaction_Cost_BPS,Total_Turnover_Pct,Total_Transaction_Cost_BPS,Strategy_Sharpe,Benchmark_Sharpe,Excess_Sharpe,Strategy_Ann_Return_Pct,Benchmark_Ann_Return_Pct,Strategy_Ann_Vol_Pct,Strategy_Max_Drawdown_Pct
+Confidence-Weighted Hybrid (TS=0.15),Confidence Weighting,0.15,5.0,0.2,252,10,1248.6815836250194,124.86815836250193,2.031,1.728,0.30300000000000016,61.41,48.49,30.23,-31.22

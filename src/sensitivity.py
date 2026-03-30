@@ -5,7 +5,7 @@ Parameter sweeps and heatmap visualisation for robustness checks.
 """
 
 import itertools
-from typing import Sequence
+from typing import Sequence, Optional, Dict, List
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -49,7 +49,7 @@ def run_sensitivity_sweep(
     values_x: Sequence,
     param_y: str,
     values_y: Sequence,
-    fixed_params: dict | None = None,
+    fixed_params: Optional[Dict] = None,
 ) -> pd.DataFrame:
     """Run a 2-D parameter sweep and return Sharpe & excess Sharpe for each cell.
 
@@ -112,7 +112,7 @@ def plot_sensitivity_heatmap(
     param_x: str,
     param_y: str,
     metric: str = "sharpe",
-    title: str | None = None,
+    title: Optional[str] = None,
     save_path=None,
 ) -> plt.Figure:
     """Plot a single annotated heatmap from sweep results."""
@@ -141,7 +141,7 @@ def run_all_sensitivity(
     prices: pd.DataFrame,
     scores: pd.DataFrame,
     save_dir=None,
-) -> dict[str, pd.DataFrame]:
+) -> Dict[str, pd.DataFrame]:
     """Run pre-defined 2-D sweeps and save heatmaps.
 
     Sweeps:
